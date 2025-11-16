@@ -1,57 +1,88 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useCart } from '@/contexts/CartContext';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import Navbar from "@/components/Navbar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useCart } from "@/contexts/CartContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { z } from "zod";
+
+const checkoutSchema = z.object({
+  customerName: z.string().min(2, "Name must be at least 2 characters"),
+  customerEmail: z.string().email("Invalid email address"),
+  customerPhone: z.string().min(10, "Phone number must be at least 10 characters"),
+  customerAddress: z.string().min(10, "Address must be at least 10 characters"),
+  businessName: z.string().optional(),
+  bkashTransactionId: z.string().min(5, "Transaction ID is required"),
+});
 
 const Checkout = () => {
+  const { items, getTotalAmount, clearCart } = useCart();
   const navigate = useNavigate();
-  const { items, totalAmount, clearCart } = useCart();
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [bkashNumber, setBkashNumber] = useState("01XXXXXXXXX");
+  
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    advanceAmount: '',
-    transactionId: '',
+    customerName: "",
+    customerEmail: "",
+    customerPhone: "",
+    customerAddress: "",
+    businessName: "",
+    bkashTransactionId: "",
   });
+
+  const totalAmount = getTotalAmount();
+  const advanceAmount = totalAmount * 0.05;
+
+  useEffect(() => {
+    fetchBkashNumber();
+  }, []);
+
+  const fetchBkashNumber = async () => {
+    const { data, error } = await supabase.rpc('get_bkash_number');
+    
+    if (data && !error) {
+      setBkashNumber(data);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const advanceAmount = parseFloat(formData.advanceAmount);
+      const validatedData = checkoutSchema.parse(formData);
+
+      const { data: { user } } = await supabase.auth.getUser();
       
-      if (advanceAmount < totalAmount * 0.3) {
+      if (!user) {
         toast({
-          title: 'Error',
-          description: 'Advance payment must be at least 30% of total amount',
-          variant: 'destructive',
+          variant: "destructive",
+          title: "Authentication required",
+          description: "Please login to place an order",
         });
-        setLoading(false);
+        navigate("/auth");
         return;
       }
 
       // Create order
       const { data: order, error: orderError } = await supabase
-        .from('orders')
+        .from("orders")
         .insert({
-          customer_name: formData.name,
-          customer_email: formData.email,
-          customer_phone: formData.phone,
-          customer_address: formData.address,
+          user_id: user.id,
+          customer_name: validatedData.customerName,
+          customer_email: validatedData.customerEmail,
+          customer_phone: validatedData.customerPhone,
+          customer_address: validatedData.customerAddress,
+          business_name: validatedData.businessName || null,
           total_amount: totalAmount,
           advance_amount: advanceAmount,
-          transaction_id: formData.transactionId,
-          status: 'pending',
+          bkash_transaction_id: validatedData.bkashTransactionId,
+          status: "pending",
         })
         .select()
         .single();
@@ -59,7 +90,7 @@ const Checkout = () => {
       if (orderError) throw orderError;
 
       // Create order items
-      const orderItems = items.map(item => ({
+      const orderItems = items.map((item) => ({
         order_id: order.id,
         item_id: item.itemId,
         quantity: item.quantity,
@@ -67,19 +98,20 @@ const Checkout = () => {
       }));
 
       const { error: itemsError } = await supabase
-        .from('order_items')
+        .from("order_items")
         .insert(orderItems);
 
       if (itemsError) throw itemsError;
 
       // Send email notification
-      await supabase.functions.invoke('send-order-email', {
+      await supabase.functions.invoke("send-order-email", {
         body: {
           orderId: order.id,
-          customerName: formData.name,
-          customerEmail: formData.email,
-          customerPhone: formData.phone,
-          customerAddress: formData.address,
+          customerName: validatedData.customerName,
+          customerEmail: validatedData.customerEmail,
+          customerPhone: validatedData.customerPhone,
+          customerAddress: validatedData.customerAddress,
+          businessName: validatedData.businessName,
           items: items.map(item => ({
             name: item.name,
             quantity: item.quantity,
@@ -88,150 +120,169 @@ const Checkout = () => {
           })),
           totalAmount,
           advanceAmount,
-          transactionId: formData.transactionId,
+          bkashTransactionId: validatedData.bkashTransactionId,
         },
       });
 
       clearCart();
       toast({
-        title: 'Success',
-        description: 'Order placed successfully!',
+        title: "Order placed!",
+        description: "Your order has been submitted successfully. Check your email for confirmation.",
       });
-      navigate('/order-success');
+      navigate("/");
     } catch (error) {
-      console.error('Error placing order:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to place order. Please try again.',
-        variant: 'destructive',
-      });
+      if (error instanceof z.ZodError) {
+        toast({
+          variant: "destructive",
+          title: "Validation error",
+          description: error.errors[0].message,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error.message || "Failed to place order",
+        });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   if (items.length === 0) {
-    navigate('/cart');
+    navigate("/cart");
     return null;
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Checkout</h1>
+    <div className="min-h-screen bg-background">
+      <Navbar />
+      
+      <main className="container mx-auto px-4 py-6 lg:py-12">
+        <h1 className="text-2xl lg:text-4xl font-bold mb-6 lg:mb-8">Checkout</h1>
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contact & Shipping Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="name">Full Name *</Label>
-                  <Input
-                    id="name"
-                    required
-                    value={formData.name}
-                    onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="email">Email *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    required
-                    value={formData.email}
-                    onChange={e => setFormData({ ...formData, email: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="phone">Phone Number *</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    required
-                    value={formData.phone}
-                    onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor="address">Shipping Address *</Label>
-                  <Textarea
-                    id="address"
-                    required
-                    value={formData.address}
-                    onChange={e => setFormData({ ...formData, address: e.target.value })}
-                    rows={3}
-                  />
-                </div>
-
-                <div className="border-t pt-4 mt-6">
-                  <h3 className="font-semibold mb-4">Payment Information</h3>
-                  
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
+          <div className="lg:col-span-2">
+            <form onSubmit={handleSubmit} className="space-y-4 lg:space-y-6">
+              <div className="border border-border p-4 lg:p-6">
+                <h2 className="text-xl lg:text-2xl font-bold mb-4 lg:mb-6">Customer Information</h2>
+                
+                <div className="space-y-4">
                   <div>
-                    <Label htmlFor="advanceAmount">Advance Payment (Min. 30%) *</Label>
+                    <Label htmlFor="customerName">Full Name *</Label>
                     <Input
-                      id="advanceAmount"
-                      type="number"
-                      step="0.01"
+                      id="customerName"
+                      value={formData.customerName}
+                      onChange={(e) => setFormData({...formData, customerName: e.target.value})}
                       required
-                      value={formData.advanceAmount}
-                      onChange={e => setFormData({ ...formData, advanceAmount: e.target.value })}
-                      placeholder={`Minimum: ৳${(totalAmount * 0.3).toFixed(2)}`}
                     />
                   </div>
 
-                  <div className="mt-4">
-                    <Label htmlFor="transactionId">Transaction ID *</Label>
+                  <div>
+                    <Label htmlFor="customerEmail">Email *</Label>
                     <Input
-                      id="transactionId"
+                      id="customerEmail"
+                      type="email"
+                      value={formData.customerEmail}
+                      onChange={(e) => setFormData({...formData, customerEmail: e.target.value})}
                       required
-                      value={formData.transactionId}
-                      onChange={e => setFormData({ ...formData, transactionId: e.target.value })}
-                      placeholder="Enter your bKash/Nagad transaction ID"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="customerPhone">Phone *</Label>
+                    <Input
+                      id="customerPhone"
+                      type="tel"
+                      value={formData.customerPhone}
+                      onChange={(e) => setFormData({...formData, customerPhone: e.target.value})}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="businessName">Business Name (Optional)</Label>
+                    <Input
+                      id="businessName"
+                      value={formData.businessName}
+                      onChange={(e) => setFormData({...formData, businessName: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="customerAddress">Delivery Address *</Label>
+                    <Textarea
+                      id="customerAddress"
+                      value={formData.customerAddress}
+                      onChange={(e) => setFormData({...formData, customerAddress: e.target.value})}
+                      required
+                      rows={4}
                     />
                   </div>
                 </div>
+              </div>
 
-                <Button type="submit" className="w-full mt-6" disabled={loading}>
-                  {loading ? 'Placing Order...' : 'Place Order'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div>
-          <Card className="sticky top-20">
-            <CardHeader>
-              <CardTitle>Order Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {items.map(item => (
-                <div key={item.id} className="flex justify-between text-sm">
-                  <span>{item.name} x {item.quantity}</span>
-                  <span>৳{(item.price * item.quantity).toFixed(2)}</span>
+              <div className="border border-border p-4 lg:p-6">
+                <h2 className="text-xl lg:text-2xl font-bold mb-4 lg:mb-6">Payment Information</h2>
+                
+                <div className="bg-muted p-4 mb-4 lg:mb-6 rounded">
+                  <p className="text-sm mb-2">To confirm your order, please pay 5% advance via bKash:</p>
+                  <p className="text-xl lg:text-2xl font-bold">৳{advanceAmount.toFixed(2)}</p>
+                  <p className="text-sm mt-2">bKash Number: <span className="font-bold text-base">{bkashNumber}</span></p>
                 </div>
-              ))}
-              
-              <div className="flex justify-between text-lg font-semibold border-t pt-4">
-                <span>Total</span>
-                <span>৳{totalAmount.toFixed(2)}</span>
+
+                <div>
+                  <Label htmlFor="bkashTransactionId">bKash Transaction ID *</Label>
+                  <Input
+                    id="bkashTransactionId"
+                    value={formData.bkashTransactionId}
+                    onChange={(e) => setFormData({...formData, bkashTransactionId: e.target.value})}
+                    placeholder="Enter your bKash transaction ID"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    After payment, enter the transaction ID you received from bKash
+                  </p>
+                </div>
               </div>
+
+              <Button type="submit" size="lg" disabled={loading} className="w-full h-12">
+                {loading ? "Processing..." : "Place Order"}
+              </Button>
+            </form>
+          </div>
+
+          <div className="lg:col-span-1">
+            <div className="border border-border p-4 lg:p-6 lg:sticky lg:top-24">
+              <h2 className="text-xl lg:text-2xl font-bold mb-4 lg:mb-6">Order Summary</h2>
               
-              <div className="text-xs text-muted-foreground">
-                <p>* Minimum 30% advance payment required</p>
-                <p>* Remaining balance to be paid on delivery</p>
+              <div className="space-y-4 mb-6">
+                {items.map((item) => (
+                  <div key={item.itemId} className="flex justify-between text-sm">
+                    <span>{item.name} x {item.quantity}</span>
+                    <span>৳{(item.price * item.quantity).toFixed(2)}</span>
+                  </div>
+                ))}
               </div>
-            </CardContent>
-          </Card>
+
+              <div className="space-y-2 border-t border-border pt-4">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span>৳{totalAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-primary">
+                  <span>Advance (5%)</span>
+                  <span>৳{advanceAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-lg font-bold pt-2 border-t border-border">
+                  <span>Total</span>
+                  <span>৳{totalAmount.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 };
