@@ -4,39 +4,48 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { CartProvider } from "@/contexts/CartContext";
-import { Navbar } from "@/components/Navbar";
-import Home from "./pages/Home";
-import Section from "./pages/Section";
-import Category from "./pages/Category";
-import Product from "./pages/Product";
+import Index from "./pages/Index";
+import Auth from "./pages/Auth";
+import WholesalerDashboard from "./pages/WholesalerDashboard";
+import CategoryPage from "./pages/CategoryPage";
+import ProductPage from "./pages/ProductPage";
+import ItemPage from "./pages/ItemPage";
 import Cart from "./pages/Cart";
 import Checkout from "./pages/Checkout";
-import OrderSuccess from "./pages/OrderSuccess";
+import Admin from "./pages/Admin";
+import Search from "./pages/Search";
+import Chat from "./pages/Chat";
+import Feedback from "./pages/Feedback";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <CartProvider>
+    <CartProvider>
+      <TooltipProvider>
         <Toaster />
         <Sonner />
         <BrowserRouter>
-          <Navbar />
           <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/:section" element={<Section />} />
-            <Route path="/:section/category/:categoryId" element={<Category />} />
-            <Route path="/:section/category/:categoryId/product/:productId" element={<Product />} />
+            <Route path="/" element={<Index />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route path="/wholesaler" element={<WholesalerDashboard />} />
+            <Route path="/category/:categoryId" element={<CategoryPage />} />
+            <Route path="/product/:productId" element={<ProductPage />} />
+            <Route path="/item/:itemId" element={<ItemPage />} />
             <Route path="/cart" element={<Cart />} />
             <Route path="/checkout" element={<Checkout />} />
-            <Route path="/order-success" element={<OrderSuccess />} />
+            <Route path="/admin" element={<Admin />} />
+            <Route path="/search" element={<Search />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/chat/:conversationId" element={<Chat />} />
+            <Route path="/feedback" element={<Feedback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
-      </CartProvider>
-    </TooltipProvider>
+      </TooltipProvider>
+    </CartProvider>
   </QueryClientProvider>
 );
 

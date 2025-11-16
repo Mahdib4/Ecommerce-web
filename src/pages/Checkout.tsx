@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
-import { toast } from 'sonner';
+import { useToast } from '@/hooks/use-toast';
 
 const Checkout = () => {
   const navigate = useNavigate();
   const { items, totalAmount, clearCart } = useCart();
+  const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -30,7 +31,11 @@ const Checkout = () => {
       const advanceAmount = parseFloat(formData.advanceAmount);
       
       if (advanceAmount < totalAmount * 0.3) {
-        toast.error('Advance payment must be at least 30% of total amount');
+        toast({
+          title: 'Error',
+          description: 'Advance payment must be at least 30% of total amount',
+          variant: 'destructive',
+        });
         setLoading(false);
         return;
       }
@@ -88,11 +93,18 @@ const Checkout = () => {
       });
 
       clearCart();
-      toast.success('Order placed successfully!');
+      toast({
+        title: 'Success',
+        description: 'Order placed successfully!',
+      });
       navigate('/order-success');
     } catch (error) {
       console.error('Error placing order:', error);
-      toast.error('Failed to place order. Please try again.');
+      toast({
+        title: 'Error',
+        description: 'Failed to place order. Please try again.',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }

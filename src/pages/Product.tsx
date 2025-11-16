@@ -7,11 +7,23 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Minus, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useCart } from '@/contexts/CartContext';
-import { toast } from 'sonner';
+import { useToast } from '@/components/ui/use-toast';
+
+interface Item {
+  id: string;
+  name: string;
+  price: number;
+  image_url?: string;
+  description?: string;
+  in_stock: boolean;
+  minimum_quantity: number;
+  product_id: string;
+}
 
 const Product = () => {
   const { section, categoryId, productId } = useParams();
   const { addItem } = useCart();
+  const { toast } = useToast();
 
   const { data: product } = useQuery({
     queryKey: ['product', productId],
@@ -27,7 +39,7 @@ const Product = () => {
     },
   });
 
-  const { data: items, isLoading } = useQuery({
+  const { data: items, isLoading } = useQuery<Item[]>({
     queryKey: ['items', productId],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -51,17 +63,20 @@ const Product = () => {
     });
   };
 
-  const handleAddToCart = (item: any) => {
+  const handleAddToCart = (item: Item) => {
     const quantity = quantities[item.id] || item.minimum_quantity;
     addItem({
       itemId: item.id,
       name: `${product?.name} - ${item.name}`,
-      price: parseFloat(String(item.price)),
+      price: item.price,
       quantity,
       imageUrl: item.image_url,
       minimumQuantity: item.minimum_quantity,
     });
-    toast.success('Added to cart!');
+    toast({
+      title: 'Success',
+      description: 'Added to cart!',
+    });
   };
 
   if (isLoading) {
@@ -128,7 +143,7 @@ const Product = () => {
             )}
             <CardHeader>
               <CardTitle>{item.name}</CardTitle>
-              <CardDescription>৳{parseFloat(String(item.price)).toFixed(2)}</CardDescription>
+              <CardDescription>৳{item.price.toFixed(2)}</CardDescription>
             </CardHeader>
             <CardContent>
               {item.description && (
